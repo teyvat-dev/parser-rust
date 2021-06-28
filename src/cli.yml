@@ -1,0 +1,23 @@
+name: genshin-data-parser
+version: "0.1.0"
+author: Drew Hutton <drew.hutton@pm.me>
+about: Parses genshindata files into workable formats
+subcommands:
+    - config: 
+        about: Updates config for the parser
+        args:
+            - verbose:
+                short: v
+                multiple: true
+                about: Sets the level of verbosity
+    - parse:
+        about: Parses genshindata
+        args:
+            - verbose:
+                short: v
+                multiple: true
+                about: Sets the level of verbosity
+            - entity:
+                about: Sets the entity of data to be parsed
+                required: true
+                index: 1
