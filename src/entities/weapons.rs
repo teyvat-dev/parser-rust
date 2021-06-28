@@ -3,7 +3,7 @@ use crate::structs::raw::{
     common, equip_affix_excel_config_data, material_excel_config_data,
     weapon_curve_excel_config_data, weapon_excel_config_data, weapon_promote_excel_config_data,
 };
-use crate::utils::{readable::Readable, texthash::TextHash, remove_xml};
+use crate::utils::{readable::Readable, remove_xml, texthash::TextHash};
 
 use std::fs;
 
@@ -114,7 +114,10 @@ fn parse_passive(
     let levels = equip_affixs
         .iter()
         .map(|affix| weapons::PassiveLevel {
-            description: remove_xml::remove_xml(texthash.get_match(&affix.desc_text_map_hash).unwrap()).unwrap(),
+            description: remove_xml::remove_xml(
+                texthash.get_match(&affix.desc_text_map_hash).unwrap(),
+            )
+            .unwrap(),
             additional_properties: affix
                 .add_props
                 .iter()
@@ -213,6 +216,7 @@ fn create_attack_scale(
         Option<f64>,
         String,
         &Vec<weapon_promote_excel_config_data::Data>,
+        usize,
     ),
 ) -> Vec<weapons::AttackLevel> {
     let mut scale: Vec<weapons::AttackLevel> = vec![];
@@ -223,11 +227,12 @@ fn create_attack_scale(
     };
     let curve_type = options.1;
     let promotes = options.2;
+    let weapon_id = options.3;
 
     for curve in weapon_curves.iter() {
         let promote_base_attack = get_promotion_additinal_base_atk(&promotes, curve.level);
 
-        if promote_base_attack == 0f64 {
+        if curve.level > 21 && promote_base_attack == 0f64 {
             continue;
         }
 
@@ -247,7 +252,11 @@ fn create_attack_scale(
         })
     }
 
-    for (i, promote) in promotes.iter().enumerate() {
+    for (i, promote) in promotes
+        .iter()
+        .filter(|promote| promote.weapon_promote_id == weapon_id)
+        .enumerate()
+    {
         let promote_add_prop = match promotes.len() >= i + 2 {
             true => promotes[i + 1]
                 .add_props
@@ -258,6 +267,7 @@ fn create_attack_scale(
                 }),
             false => None,
         };
+
         if promote_add_prop.is_none() {
             continue;
         }
@@ -271,7 +281,11 @@ fn create_attack_scale(
                 .iter()
                 .find(|info| info.r#type == curve_type)
             {
-                Some(curve) => curve.value * init_value,
+                Some(curve) => {
+                    let promote_base_attack =
+                        get_promotion_additinal_base_atk(&promotes, promote.unlock_max_level);
+                    (curve.value * init_value) + promote_base_attack
+                }
                 None => 1 as f64,
             },
             None => 1 as f64,
@@ -321,6 +335,10 @@ fn create_sub_stat_scale(
             None => 1 as f64,
         };
 
+        if value == 0.0f64 {
+            continue;
+        }
+
         scale.push(weapons::SubStatLevel {
             level: curve.level,
             value: value,
@@ -339,10 +357,15 @@ pub fn parse(texthash: TextHash, readable: Readable) -> crate::Result<Vec<weapon
         let weapon_id = weapon.id;
         let weapon_type = &weapon.weapon_type;
         let name = texthash.get_match(&weapon.name_text_map_hash).unwrap();
-        let description = remove_xml::remove_xml(texthash.get_match(&weapon.desc_text_map_hash).unwrap()).unwrap();
-        let lore = remove_xml::remove_xml(readable
-            .get_match(format!("Weapon{}", &weapon.id).as_str())
-            .unwrap()).unwrap();
+        let description =
+            remove_xml::remove_xml(texthash.get_match(&weapon.desc_text_map_hash).unwrap())
+                .unwrap();
+        let lore = remove_xml::remove_xml(
+            readable
+                .get_match(format!("Weapon{}", &weapon.id).as_str())
+                .unwrap(),
+        )
+        .unwrap();
         let weapon_passive: Vec<&equip_affix_excel_config_data::Data> = equip_affixs
             .iter()
             .filter(|affix| affix.id == weapon.skill_affix[0])
@@ -360,6 +383,7 @@ pub fn parse(texthash: TextHash, readable: Readable) -> crate::Result<Vec<weapon
                 weapon.weapon_prop[0].init_value,
                 weapon.weapon_prop[0].r#type.clone(),
                 &weapon_promotes,
+                weapon_id,
             ),
         );
         let sub_stat_levels = match weapon.weapon_prop.len() >= 2 {
